@@ -7,9 +7,9 @@ class Config:
     # Dataset
     # ==========================
 
-    TRAIN_PATH = "data/LibriSpeech/train-clean-100"
-    VAL_PATH = "data/LibriSpeech/dev-clean"
-    TEST_PATH = "data/LibriSpeech/test-clean"
+    TRAIN_PATH = "./data/LibriSpeech/train-clean-100"
+    VAL_PATH = "./data/LibriSpeech/dev-clean"
+    TEST_PATH = "./data/LibriSpeech/test-clean"
 
     SAMPLE_RATE = 16000
     SEGMENT_LENGTH = 3
@@ -51,7 +51,7 @@ class Config:
 
     NUM_EPOCHS = 100
 
-    LEARNING_RATE = 1e-3
+    LEARNING_RATE = 3e-4
 
     WEIGHT_DECAY = 2e-5
 

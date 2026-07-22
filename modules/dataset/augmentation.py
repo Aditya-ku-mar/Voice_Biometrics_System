@@ -1,6 +1,7 @@
 import random
 
 import torch
+import torch.nn.functional as F
 import torchaudio
 
 
@@ -39,7 +40,6 @@ class AudioAugmentation:
         snr_db = random.uniform(10, 30)
 
         signal_power = waveform.pow(2).mean()
-
         noise_power = noise.pow(2).mean()
 
         scale = torch.sqrt(
@@ -65,23 +65,40 @@ class AudioAugmentation:
 
     def speed_perturb(self, waveform):
 
-        factor = random.choice(
-            [0.90, 1.00, 1.10]
-        )
+        factor = random.choice([0.90, 1.00, 1.10])
 
         if factor == 1.0:
             return waveform
 
-        effect = [
-            ["speed", str(factor)],
-            ["rate", "16000"]
-        ]
+        sample_rate = 16000
+        new_sr = int(sample_rate * factor)
 
-        waveform, _ = torchaudio.sox_effects.apply_effects_tensor(
+        # Change playback speed
+        waveform = torchaudio.functional.resample(
             waveform,
-            16000,
-            effect
+            orig_freq=sample_rate,
+            new_freq=new_sr
         )
+
+        # Resample back to 16 kHz
+        waveform = torchaudio.functional.resample(
+            waveform,
+            orig_freq=new_sr,
+            new_freq=sample_rate
+        )
+
+        target_length = 3 * sample_rate  # 48000 samples
+
+        if waveform.size(1) > target_length:
+            waveform = waveform[:, :target_length]
+
+        elif waveform.size(1) < target_length:
+            pad = target_length - waveform.size(1)
+
+            waveform = F.pad(
+                waveform,
+                (0, pad)
+            )
 
         return waveform
 
@@ -89,13 +106,16 @@ class AudioAugmentation:
 
     def __call__(self, waveform):
 
-        if random.random() < self.noise_probability:
-            waveform = self.add_noise(waveform)
-
-        if random.random() < self.gain_probability:
-            waveform = self.random_gain(waveform)
-
+        # Speed perturbation
         if random.random() < self.speed_probability:
             waveform = self.speed_perturb(waveform)
 
-        return waveform
+        # Random gain
+        if random.random() < self.gain_probability:
+            waveform = self.random_gain(waveform)
+
+        # Add background noise
+        if random.random() < self.noise_probability:
+            waveform = self.add_noise(waveform)
+
+        return waveform.contiguous()

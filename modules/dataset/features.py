@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torchaudio
-
+from modules.configs.config import Config
 
 class LogMelFeatureExtractor(nn.Module):
     """
@@ -27,13 +27,13 @@ class LogMelFeatureExtractor(nn.Module):
         super().__init__()
 
         self.mel_transform = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate,
+            sample_rate=Config.SAMPLE_RATE,
             n_fft=n_fft,
             win_length=win_length,
             hop_length=hop_length,
             f_min=f_min,
             f_max=f_max,
-            n_mels=n_mels,
+            n_mels=Config.NUM_MELS,
             window_fn=torch.hamming_window,
             power=2.0,
             normalized=False,

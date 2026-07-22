@@ -2,139 +2,133 @@ import os
 import random
 
 import torch
+import torch.nn.functional as F
 import torchaudio
-
 from torch.utils.data import Dataset
 
+from modules.configs.config import Config
 from modules.dataset.features import LogMelFeatureExtractor
 from modules.dataset.augmentation import AudioAugmentation
 
 
 class SpeakerDataset(Dataset):
     """
-    Speaker Verification Dataset
+    LibriSpeech Speaker Verification Dataset
 
-    Expected directory structure
+    Expected Structure
 
-    dataset/
-    ├── speaker0001/
-    │      xxx.wav
-    │      yyy.wav
-    │
-    ├── speaker0002/
-    │      aaa.wav
-    │      bbb.wav
-    │
-    └── speaker0003/
-           ...
-
-    Returns
-    -------
-    feature : Tensor
-        Shape -> (80, Time)
-
-    label : int
+    root/
+        speaker_id/
+            chapter_id/
+                xxxx.flac
     """
 
     def __init__(
         self,
         root_dir,
-        sample_rate=16000,
-        segment_length=3,
+        sample_rate=Config.SAMPLE_RATE,
+        segment_length=Config.SEGMENT_LENGTH,
         train=True,
         augmentation=True
     ):
 
         self.root_dir = root_dir
-
         self.sample_rate = sample_rate
-
         self.segment_length = segment_length
-
-        self.segment_samples = sample_rate * segment_length
+        self.segment_samples = int(sample_rate * segment_length)
 
         self.train = train
+        self.use_augmentation = augmentation
 
         self.feature_extractor = LogMelFeatureExtractor(
-            sample_rate=sample_rate
+            sample_rate=self.sample_rate
         )
 
         self.augmentation = AudioAugmentation()
 
-        self.use_augmentation = augmentation
-
         self.audio_paths = []
-
         self.labels = []
 
         self.speaker_to_index = {}
 
+        self.resamplers = {}
+
         self._load_dataset()
 
-    # ----------------------------------------------------- #
-    # Scan Dataset
-    # ----------------------------------------------------- #
+    ##########################################################
 
     def _load_dataset(self):
 
-        speakers = sorted(os.listdir(self.root_dir))
+        if not os.path.isdir(self.root_dir):
+            raise FileNotFoundError(
+                f"Dataset path not found:\n{self.root_dir}"
+            )
 
-        speaker_index = 0
+        print("=" * 60)
+        print("Scanning Dataset...")
+        print(self.root_dir)
+        print("=" * 60)
+
+        speaker_idx = 0
+
+        speakers = sorted(
+            d for d in os.listdir(self.root_dir)
+            if os.path.isdir(os.path.join(self.root_dir, d))
+        )
 
         for speaker in speakers:
 
-            speaker_path = os.path.join(
+            speaker_dir = os.path.join(
                 self.root_dir,
                 speaker
             )
 
-            if not os.path.isdir(speaker_path):
+            speaker_audio = []
+
+            for root, _, files in os.walk(speaker_dir):
+
+                for file in files:
+
+                    if file.lower().endswith(".flac") or file.lower().endswith(".wav"):
+
+                        speaker_audio.append(
+                            os.path.join(root, file)
+                        )
+
+            if len(speaker_audio) == 0:
                 continue
 
-            self.speaker_to_index[speaker] = speaker_index
+            self.speaker_to_index[speaker] = speaker_idx
 
-            for file in os.listdir(speaker_path):
+            for path in speaker_audio:
 
-                if file.endswith(".wav"):
+                self.audio_paths.append(path)
+                self.labels.append(speaker_idx)
 
-                    self.audio_paths.append(
-                        os.path.join(
-                            speaker_path,
-                            file
-                        )
-                    )
-
-                    self.labels.append(
-                        speaker_index
-                    )
-
-            speaker_index += 1
+            speaker_idx += 1
 
         print("=" * 60)
         print("Dataset Loaded")
         print("=" * 60)
+        print("Total Speakers :", len(self.speaker_to_index))
+        print("Total Audio    :", len(self.audio_paths))
+        print("=" * 60)
 
-        print(f"Total Speakers : {len(self.speaker_to_index)}")
-        print(f"Total Audio    : {len(self.audio_paths)}")
+        if len(self.audio_paths) == 0:
+            raise RuntimeError(
+                f"No audio files found under:\n{self.root_dir}"
+            )
 
-    # ----------------------------------------------------- #
+    ##########################################################
 
     def __len__(self):
-
         return len(self.audio_paths)
 
-    # ----------------------------------------------------- #
-    # Crop / Pad Audio
-    # ----------------------------------------------------- #
+    ##########################################################
 
-    def _crop_audio(
-        self,
-        waveform
-    ):
+    def _crop_audio(self, waveform):
 
-        length = waveform.shape[1]
-
-        # Random crop
+        length = waveform.size(1)
 
         if length > self.segment_samples:
 
@@ -153,28 +147,24 @@ class SpeakerDataset(Dataset):
 
             waveform = waveform[
                 :,
-                start:start+self.segment_samples
+                start:start + self.segment_samples
             ]
-
-        # Pad
 
         elif length < self.segment_samples:
 
-            shortage = self.segment_samples - length
-
-            waveform = torch.nn.functional.pad(
+            waveform = F.pad(
                 waveform,
-                (0, shortage)
+                (
+                    0,
+                    self.segment_samples - length
+                )
             )
 
         return waveform
 
-    # ----------------------------------------------------- #
+    ##########################################################
 
-    def __getitem__(
-        self,
-        index
-    ):
+    def __getitem__(self, index):
 
         audio_path = self.audio_paths[index]
 
@@ -182,44 +172,29 @@ class SpeakerDataset(Dataset):
 
         waveform, sr = torchaudio.load(audio_path)
 
-        # Convert Stereo → Mono
-
-        if waveform.shape[0] > 1:
-
+        if waveform.size(0) > 1:
             waveform = waveform.mean(
                 dim=0,
                 keepdim=True
             )
 
-        # Resample
-
         if sr != self.sample_rate:
 
-            resampler = torchaudio.transforms.Resample(
-                sr,
-                self.sample_rate
-            )
+            if sr not in self.resamplers:
 
-            waveform = resampler(waveform)
+                self.resamplers[sr] = torchaudio.transforms.Resample(
+                    sr,
+                    self.sample_rate
+                )
 
-        # Crop / Pad
+            waveform = self.resamplers[sr](waveform)
 
-        waveform = self._crop_audio(
-            waveform
-        )
-
-        # Augmentation
+        waveform = self._crop_audio(waveform)
 
         if self.train and self.use_augmentation:
 
-            waveform = self.augmentation(
-                waveform
-            )
+            waveform = self.augmentation(waveform)
 
-        # Feature Extraction
-
-        features = self.feature_extractor(
-            waveform
-        )
+        features = self.feature_extractor(waveform)
 
         return features, label

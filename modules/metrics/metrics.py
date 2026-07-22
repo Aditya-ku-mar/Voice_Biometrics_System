@@ -5,21 +5,24 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_curve
 
 
-# ---------------------------------------------------------
+# ==========================================================
 # Cosine Similarity
-# ---------------------------------------------------------
+# ==========================================================
 
 def cosine_similarity(embedding1, embedding2):
     """
-    Compute cosine similarity between two embeddings.
+    Computes cosine similarity between two batches of embeddings.
 
     Args:
-        embedding1 : Tensor (B, D)
-        embedding2 : Tensor (B, D)
+        embedding1 : (N, D)
+        embedding2 : (N, D)
 
     Returns:
-        similarity : Tensor (B,)
+        similarity : (N,)
     """
+
+    embedding1 = F.normalize(embedding1, dim=1)
+    embedding2 = F.normalize(embedding2, dim=1)
 
     return F.cosine_similarity(
         embedding1,
@@ -28,41 +31,99 @@ def cosine_similarity(embedding1, embedding2):
     )
 
 
-# ---------------------------------------------------------
+# ==========================================================
+# Create Verification Pairs
+# ==========================================================
+
+def create_verification_pairs(
+    embeddings,
+    labels
+):
+    """
+    Generates all unique verification pairs.
+
+    Returns
+    -------
+    scores : numpy array
+    pair_labels : numpy array
+
+    pair_label
+        1 -> same speaker
+        0 -> different speaker
+    """
+
+    if torch.is_tensor(embeddings):
+        embeddings = embeddings.cpu()
+
+    if torch.is_tensor(labels):
+        labels = labels.cpu()
+
+    scores = []
+    pair_labels = []
+
+    n = len(labels)
+
+    for i in range(n):
+
+        for j in range(i + 1, n):
+
+            score = F.cosine_similarity(
+                embeddings[i].unsqueeze(0),
+                embeddings[j].unsqueeze(0)
+            ).item()
+
+            scores.append(score)
+
+            pair_labels.append(
+                int(labels[i] == labels[j])
+            )
+
+    return (
+        np.asarray(scores),
+        np.asarray(pair_labels)
+    )
+
+
+# ==========================================================
 # Verification Accuracy
-# ---------------------------------------------------------
+# ==========================================================
 
-def verification_accuracy(scores,
-                          labels,
-                          threshold=0.5):
+def verification_accuracy(
+    embeddings,
+    labels,
+    threshold=0.5
+):
     """
-    Args:
-        scores : numpy array
-        labels : numpy array
-                 1 -> same speaker
-                 0 -> different speaker
+    Computes verification accuracy.
 
-    Returns:
-        accuracy
+    Returns
+    -------
+    accuracy
     """
+
+    scores, pair_labels = create_verification_pairs(
+        embeddings,
+        labels
+    )
 
     predictions = (scores >= threshold).astype(int)
 
-    accuracy = np.mean(predictions == labels)
+    accuracy = np.mean(
+        predictions == pair_labels
+    )
 
     return accuracy
 
 
-# ---------------------------------------------------------
-# FAR
-# ---------------------------------------------------------
+# ==========================================================
+# False Acceptance Rate
+# ==========================================================
 
-def false_acceptance_rate(scores,
-                          labels,
-                          threshold):
-    """
-    FAR = FP / (FP + TN)
-    """
+def false_acceptance_rate(
+    scores,
+    labels,
+    threshold
+):
 
     predictions = scores >= threshold
 
@@ -79,21 +140,20 @@ def false_acceptance_rate(scores,
     denominator = false_accept + true_reject
 
     if denominator == 0:
-        return 0
+        return 0.0
 
     return false_accept / denominator
 
 
-# ---------------------------------------------------------
-# FRR
-# ---------------------------------------------------------
+# ==========================================================
+# False Rejection Rate
+# ==========================================================
 
-def false_rejection_rate(scores,
-                         labels,
-                         threshold):
-    """
-    FRR = FN / (TP + FN)
-    """
+def false_rejection_rate(
+    scores,
+    labels,
+    threshold
+):
 
     predictions = scores >= threshold
 
@@ -110,67 +170,68 @@ def false_rejection_rate(scores,
     denominator = false_reject + true_accept
 
     if denominator == 0:
-        return 0
+        return 0.0
 
     return false_reject / denominator
 
 
-# ---------------------------------------------------------
-# Equal Error Rate (EER)
-# ---------------------------------------------------------
+# ==========================================================
+# Equal Error Rate
+# ==========================================================
 
-def compute_eer(scores,
-                labels):
+def compute_eer(
+    embeddings,
+    labels
+):
     """
-    Compute Equal Error Rate.
+    Computes Equal Error Rate.
 
-    Args:
-        scores : numpy array
-        labels : numpy array
-                 1 = genuine
-                 0 = impostor
-
-    Returns:
-        eer
-        threshold
+    Returns
+    -------
+    eer
     """
+
+    scores, pair_labels = create_verification_pairs(
+        embeddings,
+        labels
+    )
 
     fpr, tpr, thresholds = roc_curve(
-        labels,
+        pair_labels,
         scores,
         pos_label=1
     )
 
     fnr = 1 - tpr
 
-    index = np.nanargmin(np.absolute(fnr - fpr))
+    index = np.nanargmin(
+        np.abs(fpr - fnr)
+    )
 
-    eer = (fpr[index] + fnr[index]) / 2
+    eer = (fpr[index] + fnr[index]) / 2.0
 
-    threshold = thresholds[index]
-
-    return eer, threshold
+    return eer
 
 
-# ---------------------------------------------------------
-# minDCF
-# ---------------------------------------------------------
+# ==========================================================
+# Minimum Detection Cost Function
+# ==========================================================
 
-def compute_min_dcf(scores,
-                    labels,
-                    p_target=0.01,
-                    c_miss=1,
-                    c_fa=1):
-    """
-    Compute minimum Detection Cost Function.
+def compute_min_dcf(
+    embeddings,
+    labels,
+    p_target=0.01,
+    c_miss=1,
+    c_fa=1
+):
 
-    Returns:
-        minDCF
-        threshold
-    """
+    scores, pair_labels = create_verification_pairs(
+        embeddings,
+        labels
+    )
 
     fpr, tpr, thresholds = roc_curve(
-        labels,
+        pair_labels,
         scores,
         pos_label=1
     )
@@ -178,61 +239,61 @@ def compute_min_dcf(scores,
     fnr = 1 - tpr
 
     dcf = (
-        c_miss * fnr * p_target +
+        c_miss * fnr * p_target
+        +
         c_fa * fpr * (1 - p_target)
     )
 
-    index = np.argmin(dcf)
-
-    return dcf[index], thresholds[index]
+    return np.min(dcf)
 
 
-# ---------------------------------------------------------
-# Evaluate All Metrics
-# ---------------------------------------------------------
+# ==========================================================
+# Complete Evaluation
+# ==========================================================
 
-def evaluate(scores,
-             labels):
-    """
-    Complete evaluation.
+def evaluate(
+    embeddings,
+    labels,
+    threshold=0.5
+):
 
-    Returns dictionary.
-    """
-
-    eer, eer_threshold = compute_eer(
-        scores,
-        labels
-    )
-
-    min_dcf, dcf_threshold = compute_min_dcf(
-        scores,
+    scores, pair_labels = create_verification_pairs(
+        embeddings,
         labels
     )
 
     accuracy = verification_accuracy(
-        scores,
+        embeddings,
         labels,
-        eer_threshold
+        threshold
+    )
+
+    eer = compute_eer(
+        embeddings,
+        labels
+    )
+
+    mindcf = compute_min_dcf(
+        embeddings,
+        labels
     )
 
     far = false_acceptance_rate(
         scores,
-        labels,
-        eer_threshold
+        pair_labels,
+        threshold
     )
 
     frr = false_rejection_rate(
         scores,
-        labels,
-        eer_threshold
+        pair_labels,
+        threshold
     )
 
     return {
         "Accuracy": accuracy,
         "EER": eer,
-        "Threshold": eer_threshold,
         "FAR": far,
         "FRR": frr,
-        "minDCF": min_dcf,
-        "minDCF Threshold": dcf_threshold
+        "minDCF": mindcf
     }

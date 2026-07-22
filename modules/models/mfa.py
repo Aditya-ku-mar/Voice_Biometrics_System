@@ -13,8 +13,8 @@ class MultiLayerFeatureAggregation(nn.Module):
                 self.out_channels,
                 kernel_size=1
             ),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm1d(self.out_channels)
+            nn.BatchNorm1d(self.out_channels),
+            nn.ReLU(inplace=True)
 
         )
 

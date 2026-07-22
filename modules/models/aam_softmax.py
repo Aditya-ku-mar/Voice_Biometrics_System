@@ -52,7 +52,10 @@ class AAMSoftmax(nn.Module):
         )
 
         sine = torch.sqrt(
-            (1.0 - cosine**2).clamp(0,1)
+            torch.clamp(
+                1.0 - cosine.pow(2),
+                min=1e-7
+            )
         )
 
         phi = (
@@ -82,4 +85,4 @@ class AAMSoftmax(nn.Module):
             labels
         )
 
-        return loss, logits
+        return logits, loss

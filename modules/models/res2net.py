@@ -20,7 +20,7 @@ class Res2NetBlock(nn.Module):
                         dilation=dilation
                     ),
                     nn.BatchNorm1d(self.width),
-                    nn.ReLU()
+                    nn.ReLU(inplace=True)
                 )
             )
             
