@@ -1,0 +1,26 @@
+# Dataset
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.env
+
+# Model checkpoints
+*.pth
+*.pt
+*.ckpt
+
+# Logs
+logs/
+*.log
+
+# macOS
+.DS_Store

@@ -1,5 +1,5 @@
 import torch
-import torch.nn as n
+import torch.nn as nn
 
 class SEBlock(nn.Module):
 

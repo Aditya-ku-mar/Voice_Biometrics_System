@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.se_res2block import SERes2Block
-from models.mfa import MultiLayerFeatureAggregation
-from models.attentive_pooling import AttentiveStatisticsPooling
+from .se_res2block import SERes2Block
+from .mfa import MultiLayerFeatureAggregation
+from .attentive_pooling import AttentiveStatisticsPooling
 
 
 class ECAPATDNN(nn.Module):
@@ -52,7 +52,6 @@ class ECAPATDNN(nn.Module):
         out3 = self.layer3(out2)
 
         x = self.mfa([out1, out2, out3])
-
         x = self.pool(x)
         x = self.bn_pool(x)
 

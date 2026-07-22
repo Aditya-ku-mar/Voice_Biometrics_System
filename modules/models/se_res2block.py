@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from models.res2net import Res2NetBlock
-from models.se_block import SEBlock
+from .res2net import Res2NetBlock
+from .se_block import SEBlock
 
 class SERes2Block(nn.Module):
     def __init__(self,channels=512,scale=8,dilation=2):
