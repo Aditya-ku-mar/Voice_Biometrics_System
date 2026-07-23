@@ -4,23 +4,8 @@ import torch.nn.functional as F
 
 from sklearn.metrics import roc_curve
 
-
-# ==========================================================
 # Cosine Similarity
-# ==========================================================
-
 def cosine_similarity(embedding1, embedding2):
-    """
-    Computes cosine similarity between two batches of embeddings.
-
-    Args:
-        embedding1 : (N, D)
-        embedding2 : (N, D)
-
-    Returns:
-        similarity : (N,)
-    """
-
     embedding1 = F.normalize(embedding1, dim=1)
     embedding2 = F.normalize(embedding2, dim=1)
 
@@ -31,76 +16,44 @@ def cosine_similarity(embedding1, embedding2):
     )
 
 
-# ==========================================================
-# Create Verification Pairs
-# ==========================================================
-
+# Verification Pairs (Vectorized)
 def create_verification_pairs(
     embeddings,
     labels
 ):
-    """
-    Generates all unique verification pairs.
-
-    Returns
-    -------
-    scores : numpy array
-    pair_labels : numpy array
-
-    pair_label
-        1 -> same speaker
-        0 -> different speaker
-    """
-
     if torch.is_tensor(embeddings):
         embeddings = embeddings.cpu()
 
     if torch.is_tensor(labels):
         labels = labels.cpu()
 
-    scores = []
-    pair_labels = []
-
     n = len(labels)
 
-    for i in range(n):
+    #  Normalize embeddings 
+    embeddings = F.normalize(embeddings, p=2, dim=1)
 
-        for j in range(i + 1, n):
+    #Compute similarity matrix for all pairs at once (N x N)
+    sim_matrix = torch.mm(embeddings, embeddings.T)
 
-            score = F.cosine_similarity(
-                embeddings[i].unsqueeze(0),
-                embeddings[j].unsqueeze(0)
-            ).item()
+    # Compute label match matrix at once (N x N)
+    label_matrix = labels.unsqueeze(0) == labels.unsqueeze(1)
 
-            scores.append(score)
+    # Extract upper triangular indices (unique pairs, excluding self)
+    row_indices, col_indices = torch.triu_indices(n, n, offset=1)
 
-            pair_labels.append(
-                int(labels[i] == labels[j])
-            )
+    # Index the matrices to get flat arrays
+    scores = sim_matrix[row_indices, col_indices].numpy()
+    pair_labels = label_matrix[row_indices, col_indices].int().numpy()
 
-    return (
-        np.asarray(scores),
-        np.asarray(pair_labels)
-    )
+    return scores, pair_labels
 
 
-# ==========================================================
 # Verification Accuracy
-# ==========================================================
-
 def verification_accuracy(
     embeddings,
     labels,
     threshold=0.5
 ):
-    """
-    Computes verification accuracy.
-
-    Returns
-    -------
-    accuracy
-    """
-
     scores, pair_labels = create_verification_pairs(
         embeddings,
         labels
@@ -114,11 +67,7 @@ def verification_accuracy(
 
     return accuracy
 
-
-# ==========================================================
 # False Acceptance Rate
-# ==========================================================
-
 def false_acceptance_rate(
     scores,
     labels,
@@ -144,11 +93,7 @@ def false_acceptance_rate(
 
     return false_accept / denominator
 
-
-# ==========================================================
 # False Rejection Rate
-# ==========================================================
-
 def false_rejection_rate(
     scores,
     labels,
@@ -174,23 +119,11 @@ def false_rejection_rate(
 
     return false_reject / denominator
 
-
-# ==========================================================
 # Equal Error Rate
-# ==========================================================
-
 def compute_eer(
     embeddings,
     labels
 ):
-    """
-    Computes Equal Error Rate.
-
-    Returns
-    -------
-    eer
-    """
-
     scores, pair_labels = create_verification_pairs(
         embeddings,
         labels
@@ -213,10 +146,7 @@ def compute_eer(
     return eer
 
 
-# ==========================================================
 # Minimum Detection Cost Function
-# ==========================================================
-
 def compute_min_dcf(
     embeddings,
     labels,
@@ -246,11 +176,7 @@ def compute_min_dcf(
 
     return np.min(dcf)
 
-
-# ==========================================================
 # Complete Evaluation
-# ==========================================================
-
 def evaluate(
     embeddings,
     labels,

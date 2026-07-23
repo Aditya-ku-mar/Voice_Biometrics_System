@@ -1,10 +1,9 @@
 import os
-
-from tqdm import tqdm
-
 import torch
 from torch.amp import autocast
+from tqdm import tqdm
 
+from modules.metrics.metrics import evaluate
 
 class Trainer:
 
@@ -44,21 +43,19 @@ class Trainer:
             exist_ok=True
         )
 
-        self.best_accuracy = 0.0
+        # Track the lowest EER instead of classification accuracy
+        self.best_eer = float('inf')
         self.start_epoch = 1
 
         self.history = {
             "train_loss": [],
             "train_acc": [],
-            "val_loss": [],
+            "val_eer": [],
             "val_acc": [],
             "lr": []
         }
 
-    ############################################################
     # Save Checkpoint
-    ############################################################
-
     def save_checkpoint(
         self,
         epoch,
@@ -66,22 +63,15 @@ class Trainer:
     ):
 
         checkpoint = {
-
             "epoch": epoch,
-
             "model": self.model.state_dict(),
-
             "classifier": self.classifier.state_dict(),
-
             "optimizer": self.optimizer.state_dict(),
-
             "scheduler":
                 self.scheduler.state_dict()
                 if self.scheduler is not None
                 else None,
-
-            "best_accuracy": self.best_accuracy,
-
+            "best_eer": self.best_eer,
             "history": self.history
         }
 
@@ -96,7 +86,6 @@ class Trainer:
         )
 
         if is_best:
-
             best_path = os.path.join(
                 self.checkpoint_dir,
                 "best_model.pt"
@@ -107,10 +96,7 @@ class Trainer:
                 best_path
             )
 
-    ############################################################
     # Load Checkpoint
-    ############################################################
-
     def load_checkpoint(
         self,
         path
@@ -138,14 +124,13 @@ class Trainer:
             self.scheduler is not None
             and checkpoint["scheduler"] is not None
         ):
-
             self.scheduler.load_state_dict(
                 checkpoint["scheduler"]
             )
 
-        self.best_accuracy = checkpoint.get(
-            "best_accuracy",
-            0.0
+        self.best_eer = checkpoint.get(
+            "best_eer",
+            float('inf')
         )
 
         self.history = checkpoint.get(
@@ -160,10 +145,7 @@ class Trainer:
         print(f"Resume Training From Epoch {self.start_epoch}")
         print("=" * 70)
 
-    ############################################################
     # Train One Epoch
-    ############################################################
-
     def train_epoch(
         self,
         epoch
@@ -278,20 +260,15 @@ class Trainer:
             epoch_loss,
             epoch_acc
         )
-
-    ############################################################
+        
     # Validation
-    ############################################################
-
     @torch.no_grad()
     def validate(self):
-
+        
         self.model.eval()
-        self.classifier.eval()
 
-        running_loss = 0.0
-        running_correct = 0
-        running_total = 0
+        all_embeddings = []
+        all_labels = []
 
         progress_bar = tqdm(
             self.val_loader,
@@ -305,85 +282,33 @@ class Trainer:
                 non_blocking=True
             )
 
-            labels = labels.to(
-                self.device,
-                non_blocking=True
-            )
-
             with autocast(
                 device_type="cuda",
                 enabled=self.mixed_precision
             ):
 
-                embeddings = self.model(
-                    features
-                )
+                embeddings = self.model(features)
 
-                logits, loss = self.classifier(
-                    embeddings,
-                    labels
-                )
+            all_embeddings.append(embeddings.cpu())
+            all_labels.append(labels.cpu())
 
-            predictions = torch.argmax(
-                logits,
-                dim=1
-            )
+        all_embeddings = torch.cat(all_embeddings, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
 
-            batch_size = labels.size(0)
+        metrics = evaluate(all_embeddings, all_labels)
+        
+        epoch_eer = metrics["EER"] * 100.0
+        epoch_acc = metrics["Accuracy"] * 100.0
 
-            running_correct += (
-                predictions == labels
-            ).sum().item()
-
-            running_total += batch_size
-
-            running_loss += (
-                loss.item() * batch_size
-            )
-
-            avg_loss = (
-                running_loss /
-                running_total
-            )
-
-            avg_acc = (
-                100.0 *
-                running_correct /
-                running_total
-            )
-
-            progress_bar.set_postfix(
-                loss=f"{avg_loss:.4f}",
-                acc=f"{avg_acc:.2f}%"
-            )
-
-        epoch_loss = (
-            running_loss /
-            running_total
-        )
-
-        epoch_acc = (
-            100.0 *
-            running_correct /
-            running_total
-        )
-
-        self.history["val_loss"].append(
-            epoch_loss
-        )
-
-        self.history["val_acc"].append(
-            epoch_acc
-        )
+        self.history["val_eer"].append(epoch_eer)
+        self.history["val_acc"].append(epoch_acc)
 
         return (
-            epoch_loss,
+            epoch_eer,
             epoch_acc
         )
-    ############################################################
+        
     # Training Loop
-    ############################################################
-
     def fit(self):
 
         print("=" * 70)
@@ -395,33 +320,24 @@ class Trainer:
             self.epochs + 1
         ):
 
-            # ---------------------------------------
             # Training
-            # ---------------------------------------
-
             train_loss, train_acc = self.train_epoch(
                 epoch
             )
 
-            # ---------------------------------------
             # Validation
-            # ---------------------------------------
+            val_eer, val_acc = self.validate()
 
-            val_loss, val_acc = self.validate()
-
-            # ---------------------------------------
             # Learning Rate Scheduler
-            # ---------------------------------------
-
             if self.scheduler is not None:
 
                 if isinstance(
                     self.scheduler,
                     torch.optim.lr_scheduler.ReduceLROnPlateau
                 ):
-
+                    # EER 
                     self.scheduler.step(
-                        val_loss
+                        val_eer
                     )
 
                 else:
@@ -434,15 +350,13 @@ class Trainer:
                 current_lr
             )
 
-            # ---------------------------------------
             # Save Best Model
-            # ---------------------------------------
-
             is_best = False
 
-            if val_acc > self.best_accuracy:
+            #lowest EER
+            if val_eer < self.best_eer:
 
-                self.best_accuracy = val_acc
+                self.best_eer = val_eer
                 is_best = True
 
             self.save_checkpoint(
@@ -450,41 +364,18 @@ class Trainer:
                 is_best=is_best
             )
 
-            # ---------------------------------------
             # Epoch Summary
-            # ---------------------------------------
-
             print()
             print("-" * 70)
 
-            print(
-                f"Epoch {epoch}/{self.epochs}"
-            )
-
-            print(
-                f"Learning Rate       : {current_lr:.8f}"
-            )
-
-            print(
-                f"Train Loss          : {train_loss:.4f}"
-            )
-
-            print(
-                f"Train Accuracy      : {train_acc:.2f}%"
-            )
-
-            print(
-                f"Validation Loss     : {val_loss:.4f}"
-            )
-
-            print(
-                f"Validation Accuracy : {val_acc:.2f}%"
-            )
-
-            print(
-                f"Best Validation Acc : {self.best_accuracy:.2f}%"
-            )
-
+            print(f"Epoch {epoch}/{self.epochs}")
+            print(f"Learning Rate       : {current_lr:.8f}")
+            print(f"Train Loss          : {train_loss:.4f}")
+            print(f"Train Accuracy      : {train_acc:.2f}%")
+            print(f"Validation EER      : {val_eer:.4f}%")
+            print(f"Validation Ver. Acc : {val_acc:.2f}%")
+            print(f"Best Validation EER : {self.best_eer:.4f}%")
+            
             print("-" * 70)
             print()
 

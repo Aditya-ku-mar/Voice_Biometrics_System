@@ -4,16 +4,6 @@ import torchaudio
 from modules.configs.config import Config
 
 class LogMelFeatureExtractor(nn.Module):
-    """
-    Extract 80-dimensional Log-Mel Filter Bank features.
-
-    Input:
-        waveform : (1, N)
-
-    Output:
-        features : (80, Time)
-    """
-
     def __init__(
         self,
         sample_rate=16000,
@@ -44,36 +34,15 @@ class LogMelFeatureExtractor(nn.Module):
         )
 
     def forward(self, waveform):
-        """
-        waveform shape
-            (1, N)
 
-        returns
-            (80, Time)
-        """
-
-        # -----------------------------
         # Mel Spectrogram
-        # -----------------------------
         mel = self.mel_transform(waveform)
 
-        # (1,80,T)
-
-        # -----------------------------
         # Convert to Log Scale
-        # -----------------------------
         mel = self.amplitude_to_db(mel)
 
-        # -----------------------------
-        # Remove Channel Dimension
-        # -----------------------------
         mel = mel.squeeze(0)
 
-        # (80,T)
-
-        # -----------------------------
-        # Mean Normalization
-        # -----------------------------
         mel = mel - mel.mean(dim=1, keepdim=True)
 
         return mel

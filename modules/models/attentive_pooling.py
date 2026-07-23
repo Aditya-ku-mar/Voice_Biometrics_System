@@ -3,16 +3,6 @@ import torch.nn as nn
 
 
 class AttentiveStatisticsPooling(nn.Module):
-    """
-    Channel-Dependent Attentive Statistics Pooling
-    ECAPA-TDNN (Desplanques et al., Interspeech 2020)
-
-    Input:
-        x : (B, C, T)
-
-    Output:
-        (B, 2*C)
-    """
 
     def __init__(self, channels=1536, attention_channels=128):
         super().__init__()
@@ -34,15 +24,6 @@ class AttentiveStatisticsPooling(nn.Module):
         )
 
     def forward(self, x):
-        """
-        Args:
-            x : Tensor
-                Shape (B, C, T)
-
-        Returns:
-            Tensor
-                Shape (B, 2*C)
-        """
 
         T = x.size(-1)
 

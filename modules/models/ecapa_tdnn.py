@@ -17,11 +17,8 @@ class ECAPATDNN(nn.Module):
         emb_dim=192
     ):
         super().__init__()
-
-        # --------------------------------------------------
+        
         # Initial TDNN Layer
-        # --------------------------------------------------
-
         self.conv = nn.Conv1d(
             in_channels=input_dim,
             out_channels=channels,
@@ -38,10 +35,7 @@ class ECAPATDNN(nn.Module):
 
         self.relu = nn.ReLU(inplace=True)
 
-        # --------------------------------------------------
         # SE-Res2 Blocks
-        # --------------------------------------------------
-
         self.layer1 = SERes2Block(
             channels=channels,
             scale=scale,
@@ -60,19 +54,13 @@ class ECAPATDNN(nn.Module):
             dilation=4
         )
 
-        # --------------------------------------------------
         # Multi-Layer Feature Aggregation
-        # --------------------------------------------------
-
         self.mfa = MultiLayerFeatureAggregation(
             channels=channels,
             num_blocks=3
         )
 
-        # --------------------------------------------------
         # Attentive Statistics Pooling
-        # --------------------------------------------------
-
         self.pool = AttentiveStatisticsPooling(
             channels=channels * 3
         )
@@ -81,10 +69,7 @@ class ECAPATDNN(nn.Module):
             channels * 6
         )
 
-        # --------------------------------------------------
         # Embedding Layer
-        # --------------------------------------------------
-
         self.embedding = nn.Sequential(
             nn.Linear(
                 channels * 6,
@@ -97,48 +82,30 @@ class ECAPATDNN(nn.Module):
 
     def forward(self, x):
 
-        # --------------------------------------------------
         # Initial TDNN
-        # --------------------------------------------------
-
         x = self.conv(x)
         x = self.bn(x)
         x = self.relu(x)
 
-        # --------------------------------------------------
         # SE-Res2 Blocks
-        # --------------------------------------------------
-
         out1 = self.layer1(x)
-
         out2 = self.layer2(
             x + out1
         )
-
         out3 = self.layer3(
             x + out1 + out2
         )
 
-        # --------------------------------------------------
         # Multi-Layer Feature Aggregation
-        # --------------------------------------------------
-
         x = self.mfa(
             [out1, out2, out3]
         )
-
-        # --------------------------------------------------
+        
         # Attentive Statistics Pooling
-        # --------------------------------------------------
-
         x = self.pool(x)
-
         x = self.bn_pool(x)
 
-        # --------------------------------------------------
         # Speaker Embedding
-        # --------------------------------------------------
-
         embedding = self.embedding(x)
 
         embedding = F.normalize(
